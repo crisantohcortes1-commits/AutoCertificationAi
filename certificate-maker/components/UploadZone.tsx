@@ -5,9 +5,10 @@ import { DragEvent, useRef, useState } from "react";
 interface UploadZoneProps {
   onFileSelected: (file: File) => void;
   isLoading?: boolean;
+  onUseSampleTemplate?: () => void;
 }
 
-export default function UploadZone({ onFileSelected, isLoading = false }: UploadZoneProps) {
+export default function UploadZone({ onFileSelected, isLoading = false, onUseSampleTemplate }: UploadZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -48,6 +49,18 @@ export default function UploadZone({ onFileSelected, isLoading = false }: Upload
         {isLoading ? <p>Reading template…</p> : <>
           <p className="text-lg font-semibold">Drop your certificate template here</p>
           <p className="text-sm text-slate-500">or click to browse — .docx files only</p>
+          {onUseSampleTemplate && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUseSampleTemplate();
+              }}
+              className="mt-4 inline-flex items-center justify-center rounded-full border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50"
+            >
+              Use built-in sample template
+            </button>
+          )}
         </>}
       </div>
     </div>
