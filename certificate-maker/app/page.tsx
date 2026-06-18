@@ -7,7 +7,6 @@ import GenerateButton from "@/components/GenerateButton";
 import ProgressBar from "@/components/ProgressBar";
 import DownloadCard from "@/components/DownloadCard";
 import TemplateLibrary from "@/components/TemplateLibrary";
-import AiNameAssistant from "@/components/AiNameAssistant";
 import { parseTemplate } from "@/lib/docxParser";
 import { generateCertificate } from "@/lib/docxGenerator";
 import { buildAndDownloadMergedDocx } from "@/lib/docxMerger";
