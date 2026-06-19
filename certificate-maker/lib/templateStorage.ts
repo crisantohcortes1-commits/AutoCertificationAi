@@ -3,6 +3,7 @@
 import { CertificateTemplate } from "@/types";
 
 const STORAGE_KEY = "certificate_maker_templates";
+const MAX_STORED_TEMPLATES = 1;
 
 function getAll(): CertificateTemplate[] {
   if (typeof window === "undefined") return [];
@@ -16,7 +17,14 @@ function getAll(): CertificateTemplate[] {
 
 function saveAll(templates: CertificateTemplate[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
+
+  const trimmedTemplates = templates.slice(-MAX_STORED_TEMPLATES);
+
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmedTemplates));
+  } catch {
+    // Ignore quota/storage errors so the app keeps working without surfacing a fake failure.
+  }
 }
 
 export function saveTemplate(template: CertificateTemplate): void {
