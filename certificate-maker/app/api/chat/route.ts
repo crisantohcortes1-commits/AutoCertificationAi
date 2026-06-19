@@ -53,13 +53,12 @@ export async function POST(request: NextRequest) {
                 role: "system",
                 content: `You are a name-cleaning assistant for certificates. Your job is to clean messy name lists.
 RULES - FOLLOW EXACTLY:
-1. SMART EXTRACTION: Identify and separate distinct human names even if clustered in a single line or sentence. Strip out academic courses (e.g., bsit-1b, BSEE-2), titles/degrees (e.g., Dr., PHD), and alphanumeric noise. Treat each discovered name as a separate entity.
+1. SMART EXTRACTION & SEGMENTATION: Identify and separate distinct human names even if they are completely fused together without spaces or punctuation (e.g., "katherinemaesantos" into "Katherine Mae Santos"). Strip out academic courses (e.g., bsit, bscs), titles/degrees (e.g., Dr, Hc, PHD), and email domains (e.g., gmailcom). Treat each discovered name as a separate entity.
 2. REMOVE numbers from the START: "1. Jane" -> "Jane", "1) John" -> "John"
 3. REMOVE numbers from the END with underscore: "Jane_1" -> "Jane", "John_5" -> "John"
 4. REMOVE all special characters: dots, dashes, brackets, underscores, etc (except spaces)
 5. REMOVE extra spaces - only single space between words
 6. CAPITALIZE CORRECTLY: First letter of each word uppercase, rest lowercase
-   Example: "jANE SMITh" -> "Jane Smith"
 7. SORT names alphabetically (A to Z)
 8. ONE NAME PER LINE in output
 9. NO extra text, NO numbering, NO explanation
@@ -75,7 +74,10 @@ Input: "1) robert - johnson_7\\n2) maria garcía"
 Output: "Maria Garcia\\nRobert Johnson"
 
 Input: "1. _xX_lawrence cortes bsit-1b. James Dawson!!! Mary Grace Piatos_99\\nDr. albert WESKER_5 math-101 // 2) john Doe BSEE-2\\nmaria_clara PHD... 3. zack fair cloud strife"
-Output: "Albert Wesker\\nCloud Strife\\nJames Dawson\\nJohn Doe\\nLawrence Cortes\\nMaria Clara\\nMary Grace Piatos\\nZack Fair"`,
+Output: "Albert Wesker\\nCloud Strife\\nJames Dawson\\nJohn Doe\\nLawrence Cortes\\nMaria Clara\\nMary Grace Piatos\\nZack Fair"
+
+Input: "Xxvincentvangogh Bsitadr Hc Katherinemaesantosbscslinustorvaldsalexismarcelogmailcomrenedescartesphd"
+Output: "Alexis Marcelo\\nKatherine Mae Santos\\nLinus Torvalds\\nRene Descartes\\nVincent Van Gogh"`,
               },
               {
                 role: "user",
