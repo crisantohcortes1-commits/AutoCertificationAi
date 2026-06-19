@@ -23,3 +23,14 @@ export function fitFontSize(
 
   return null;
 }
+
+export function fitFontSizeForOrientation(
+  text: string,
+  orientation: "portrait" | "landscape",
+  maxFontSizePt: number,
+  MIN_FONT_PT = 8
+): number {
+  const availableWidthEmu = orientation === "landscape" ? 8_229_600 : 5_486_400;
+  const fittedSize = fitFontSize(text, availableWidthEmu, maxFontSizePt, MIN_FONT_PT);
+  return fittedSize ?? MIN_FONT_PT;
+}

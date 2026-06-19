@@ -17,7 +17,10 @@ export async function generateCertificate(
     const file = zip.file(filePath);
     if (!file) continue;
 
-    let xmlContent = await file.async("string");
+    const xmlContent = await file.async("string");
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(xmlContent, "application/xml");
+    const serializer = new XMLSerializer();
 
     for (const [rawKey, rawValue] of Object.entries(values)) {
       const key = rawKey.toLowerCase();
@@ -25,18 +28,47 @@ export async function generateCertificate(
       if (!info) continue;
 
       const fittedSize = fitFontSize(rawValue, info.availableWidthEmu, info.originalFontSize);
-      if (fittedSize === null) {
-        throw new Error(`Value "${rawValue}" is too long to fit in the template.`);
-      }
-
+      const effectiveSize = fittedSize ?? 8;
       const escapedValue = escapeXml(rawValue);
-      xmlContent = xmlContent.replace(new RegExp(`\\{${key}\\}`, "gi"), escapedValue);
-      if (fittedSize !== info.originalFontSize) {
-        xmlContent = xmlContent.replace(/w:sz="(\d+)"/g, `w:sz="${Math.round(fittedSize * 2)}"`);
+      const placeholderPattern = new RegExp(`\\{${key}\\}`, "i");
+      const replacementPattern = new RegExp(`\\{${key}\\}`, "gi");
+
+      for (const textNode of Array.from(xmlDoc.querySelectorAll("t"))) {
+        const textContent = textNode.textContent ?? "";
+        if (!placeholderPattern.test(textContent)) continue;
+
+        textNode.textContent = textContent.replace(replacementPattern, escapedValue);
+
+        const run = textNode.parentElement;
+        if (!run) continue;
+
+        let runProperties = run.querySelector("rPr");
+        if (!runProperties && fittedSize !== info.originalFontSize) {
+          runProperties = xmlDoc.createElementNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "w:rPr");
+          run.appendChild(runProperties);
+        }
+
+        if (!runProperties) continue;
+
+        if (fittedSize !== info.originalFontSize) {
+          let sizeElement = runProperties.querySelector("sz");
+          if (!sizeElement) {
+            sizeElement = xmlDoc.createElementNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "w:sz");
+            runProperties.appendChild(sizeElement);
+          }
+          sizeElement.setAttribute("w:val", String(Math.round(effectiveSize * 2)));
+
+          let sizeCsElement = runProperties.querySelector("szCs");
+          if (!sizeCsElement) {
+            sizeCsElement = xmlDoc.createElementNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "w:szCs");
+            runProperties.appendChild(sizeCsElement);
+          }
+          sizeCsElement.setAttribute("w:val", String(Math.round(effectiveSize * 2)));
+        }
       }
     }
 
-    zip.file(filePath, xmlContent);
+    zip.file(filePath, serializer.serializeToString(xmlDoc));
   }
 
   return await zip.generateAsync({ type: "arraybuffer" });

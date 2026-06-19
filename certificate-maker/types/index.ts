@@ -8,6 +8,7 @@ export interface PlaceholderInfo {
   alignment: "left" | "center" | "right";
   availableWidthEmu: number;
   availableHeightEmu: number;
+  orientation: "portrait" | "landscape";
 }
 
 export interface CertificateTemplate {

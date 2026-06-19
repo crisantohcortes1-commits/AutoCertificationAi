@@ -1,7 +1,11 @@
 export async function loadTemplateFile(path: string): Promise<File> {
-  const response = await fetch(path);
+  const resolvedPath = path.startsWith("http")
+    ? path
+    : new URL(path.replace(/^\/+/, ""), typeof window !== "undefined" ? window.location.href : "http://localhost").toString();
+
+  const response = await fetch(resolvedPath, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Unable to load template from ${path}`);
+    throw new Error(`Unable to load template from ${resolvedPath}`);
   }
 
   const blob = await response.blob();

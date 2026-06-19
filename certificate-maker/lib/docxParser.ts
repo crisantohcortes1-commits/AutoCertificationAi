@@ -5,6 +5,25 @@ import { PlaceholderInfo } from "@/types";
 
 const PLACEHOLDER_REGEX = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/gi;
 
+export function detectOrientation(documentXml: string): "portrait" | "landscape" {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(documentXml, "application/xml");
+  const pageSize = doc.querySelector("pgSz") || doc.getElementsByTagNameNS("*", "pgSz")[0];
+
+  if (!pageSize) {
+    return "portrait";
+  }
+
+  const width = Number(pageSize.getAttribute("w:w"));
+  const height = Number(pageSize.getAttribute("w:h"));
+
+  if (Number.isFinite(width) && Number.isFinite(height) && width > height) {
+    return "landscape";
+  }
+
+  return "portrait";
+}
+
 export async function parseTemplate(buffer: ArrayBuffer): Promise<PlaceholderInfo[]> {
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file("word/document.xml")?.async("string");
@@ -13,6 +32,7 @@ export async function parseTemplate(buffer: ArrayBuffer): Promise<PlaceholderInf
     throw new Error("Invalid DOCX: word/document.xml not found.");
   }
 
+  const orientation = detectOrientation(documentXml);
   const found = new Map<string, PlaceholderInfo>();
   const parser = new DOMParser();
   const doc = parser.parseFromString(documentXml, "application/xml");
@@ -54,8 +74,9 @@ export async function parseTemplate(buffer: ArrayBuffer): Promise<PlaceholderInf
         italic,
         underline,
         alignment,
-        availableWidthEmu: 5_486_400,
+        availableWidthEmu: orientation === "landscape" ? 8_229_600 : 5_486_400,
         availableHeightEmu: 914_400,
+        orientation,
       });
     }
   }
