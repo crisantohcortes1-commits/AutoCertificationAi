@@ -9,7 +9,7 @@ import DownloadCard from "@/components/DownloadCard";
 import TemplateLibrary from "@/components/TemplateLibrary";
 import { parseTemplate } from "@/lib/docxParser";
 import { generateCertificate } from "@/lib/docxGenerator";
-import { buildAndDownloadMergedDocx } from "@/lib/docxMerger";
+import { buildAndDownloadMergedDocx, buildAndDownloadMergedDocxPortrait } from "@/lib/docxMerger";
 import { loadTemplateFile } from "@/lib/templateLoader";
 import { loadTemplates, saveTemplate } from "@/lib/templateStorage";
 import { CertificateTemplate, FormValues, GenerationProgress } from "@/types";
@@ -34,6 +34,7 @@ export default function HomePage() {
   const [isReading, setIsReading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCleaningNames, setIsCleaningNames] = useState(false);
+  const [outputMode, setOutputMode] = useState<"landscape" | "portrait">("landscape");
 
   useEffect(() => {
     if (typeof window === "undefined" || template) return;
@@ -173,7 +174,11 @@ export default function HomePage() {
       }
 
       if (entries.length > 0) {
-        await buildAndDownloadMergedDocx(entries);
+        if (outputMode === "portrait") {
+          await buildAndDownloadMergedDocxPortrait(entries);
+        } else {
+          await buildAndDownloadMergedDocx(entries);
+        }
         setDone(true);
       }
     } finally {
@@ -258,6 +263,31 @@ export default function HomePage() {
               <p className="mt-1 text-sm text-slate-500">Populate the detected placeholders and list student names.</p>
               {template ? <>
                 <div className="mt-6"><CertificateForm placeholders={template.placeholders} values={formValues} onChange={handleFormChange} names={names} onNamesChange={handleNamesChange} onCleanNames={handleCleanNames} onUseAiAssistant={handleAiCleanNames} isAiLoading={isCleaningNames} nameCount={nameCount} /></div>
+                <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-slate-800/70 bg-slate-950/40 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Portrait mode</p>
+                      <p className="text-xs text-slate-400">Choose how each certificate page should be separated.</p>
+                    </div>
+                    <div className="flex rounded-full border border-slate-700 bg-slate-900 p-1">
+                      <button
+                        type="button"
+                        onClick={() => setOutputMode("landscape")}
+                        className={`rounded-full px-3 py-1.5 text-sm ${outputMode === "landscape" ? "bg-blue-600 text-white" : "text-slate-300 hover:text-white"}`}
+                      >
+                        Landscape
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setOutputMode("portrait")}
+                        className={`rounded-full px-3 py-1.5 text-sm ${outputMode === "portrait" ? "bg-blue-600 text-white" : "text-slate-300 hover:text-white"}`}
+                      >
+                        Portrait
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500">{outputMode === "portrait" ? "Each certificate will start on a new page with explicit page breaks." : "Certificates will be merged using continuous section breaks for landscape layouts."}</p>
+                </div>
                 <div className="mt-6"><GenerateButton onClick={handleGenerate} disabled={nameCount === 0} nameCount={nameCount} /></div>
               </> : <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-sm text-slate-500">Please upload a template first to enable the editor and generation tools.</div>}
             </section>

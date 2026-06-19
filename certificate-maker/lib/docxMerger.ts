@@ -11,16 +11,13 @@ export interface CertificateEntry {
 
 const WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
 
+// ─── Shared helper ────────────────────────────────────────────────────────────
+
 /**
- * Returns the direct-child <w:sectPr> of the given body element.
- *
- * WHY NOT getElementsByTagNameNS:
- *   After the first merge iteration, we insert a <w:p><w:pPr><w:sectPr> (continuous
- *   section break paragraph) before the final sectPr. On the next iteration,
- *   getElementsByTagNameNS finds that *nested* sectPr first instead of the body-level
- *   one, so insertBefore throws NotFoundError because it's not a direct child of body.
- *
- *   We must walk only direct children to always get the right node.
+ * Returns only the direct-child <w:sectPr> of body.
+ * getElementsByTagNameNS searches the whole subtree and on i=2+ finds the
+ * nested sectPr we already inserted inside a continuous-break paragraph,
+ * causing insertBefore to throw NotFoundError.
  */
 function getBodyLevelSectPr(body: Element): Element | null {
   for (const child of Array.from(body.childNodes)) {
@@ -34,62 +31,49 @@ function getBodyLevelSectPr(body: Element): Element | null {
   return null;
 }
 
-export async function buildAndDownloadMergedDocx(entries: CertificateEntry[]): Promise<void> {
-  if (entries.length === 0) {
-    throw new Error("No certificates to merge");
-  }
+// ─── LANDSCAPE merge ─────────────────────────────────────────────────────────
+// Uses continuous section breaks to avoid blank pages between landscape pages.
+
+export async function buildAndDownloadMergedDocx(
+  entries: CertificateEntry[]
+): Promise<void> {
+  if (entries.length === 0) throw new Error("No certificates to merge");
 
   const baseZip = await JSZip.loadAsync(entries[0].buffer);
   const baseDocumentXml = await baseZip.file("word/document.xml")?.async("string");
-
-  if (!baseDocumentXml) {
-    throw new Error("Invalid base DOCX file");
-  }
+  if (!baseDocumentXml) throw new Error("Invalid base DOCX file");
 
   const parser = new DOMParser();
   const baseDocument = parser.parseFromString(baseDocumentXml, "application/xml");
   const baseBody = baseDocument.getElementsByTagNameNS("*", "body")[0];
-
-  if (!baseBody) {
-    throw new Error("Invalid DOCX body structure");
-  }
+  if (!baseBody) throw new Error("Invalid DOCX body structure");
 
   for (let i = 1; i < entries.length; i++) {
     const currentZip = await JSZip.loadAsync(entries[i].buffer);
     const currentDocumentXml = await currentZip.file("word/document.xml")?.async("string");
-
     if (!currentDocumentXml) continue;
 
     const currentDocument = parser.parseFromString(currentDocumentXml, "application/xml");
     const currentBody = currentDocument.getElementsByTagNameNS("*", "body")[0];
-
     if (!currentBody) continue;
 
-    // ✅ Re-query on every iteration, and only look at DIRECT children of baseBody
-    //    so we never accidentally find the sectPr nested inside a continuous-break paragraph
+    // Re-query every iteration — direct children only, never nested
     const sectionBreak = getBodyLevelSectPr(baseBody);
     const sectionBreakParagraph = createContinuousSectionBreakParagraph(baseDocument, sectionBreak);
 
-    // Insert a continuous section break before the final sectPr
-    // (needed for every certificate after the first, to separate pages without blank pages)
     if (sectionBreak) {
       baseBody.insertBefore(sectionBreakParagraph, sectionBreak);
     } else {
       baseBody.appendChild(sectionBreakParagraph);
     }
 
-    // Move all content nodes from the current certificate into the base body,
-    // placing them before the final sectPr (preserves page settings at the end)
+    const finalSectPr = getBodyLevelSectPr(baseBody);
+
     const childrenToMove = Array.from(currentBody.childNodes).filter(
       (child) =>
         child.nodeType === Node.ELEMENT_NODE &&
         (child as Element).localName !== "sectPr"
     );
-
-    // Re-query sectionBreak again after inserting sectionBreakParagraph,
-    // because insertBefore doesn't change sectionBreak's position but it's
-    // safer to always have a fresh reference before the inner insertBefore calls
-    const finalSectPr = getBodyLevelSectPr(baseBody);
 
     childrenToMove.forEach((child) => {
       const importedChild = baseDocument.importNode(child, true);
@@ -100,8 +84,7 @@ export async function buildAndDownloadMergedDocx(entries: CertificateEntry[]): P
       }
     });
 
-    // Strip any sectPr that came in with the current certificate's body
-    // (we only want the one final sectPr at the end of the merged document)
+    // Strip sectPr nodes that came with this certificate — we only want one at the end
     const incomingSectionBreaks = currentBody.getElementsByTagNameNS("*", "sectPr");
     while (incomingSectionBreaks.length > 0) {
       incomingSectionBreaks[0].parentNode?.removeChild(incomingSectionBreaks[0]);
@@ -114,7 +97,7 @@ export async function buildAndDownloadMergedDocx(entries: CertificateEntry[]): P
   baseZip.file("word/document.xml", mergedDocumentXml);
 
   const mergedBlob = await baseZip.generateAsync({ type: "blob" });
-  saveAs(mergedBlob, "Certificates.docx");
+  saveAs(mergedBlob, "Certificates_Landscape.docx");
 }
 
 function createContinuousSectionBreakParagraph(
@@ -127,13 +110,9 @@ function createContinuousSectionBreakParagraph(
     ? (sectionBreak.cloneNode(true) as Element)
     : document.createElementNS(WORD_NAMESPACE, "w:sectPr");
 
-  // Remove any existing <w:type> so we can set our own
   const existingTypes = Array.from(sectPr.getElementsByTagNameNS(WORD_NAMESPACE, "type"));
-  existingTypes.forEach((typeElement) => {
-    typeElement.parentNode?.removeChild(typeElement);
-  });
+  existingTypes.forEach((t) => t.parentNode?.removeChild(t));
 
-  // Make this section flow continuously (no blank page before the next certificate)
   const typeElement = document.createElementNS(WORD_NAMESPACE, "w:type");
   typeElement.setAttribute("w:val", "continuous");
   sectPr.insertBefore(typeElement, sectPr.firstChild);
@@ -141,5 +120,97 @@ function createContinuousSectionBreakParagraph(
   pPr.appendChild(sectPr);
   paragraph.appendChild(pPr);
 
+  return paragraph;
+}
+
+// ─── PORTRAIT merge ──────────────────────────────────────────────────────────
+// Portrait does NOT use continuous sections — that was squishing everything onto
+// one page. Instead we insert an explicit page-break paragraph between certificates
+// and keep each certificate's content separate. The final sectPr from the base
+// document stays at the end to preserve page size/margins.
+
+export async function buildAndDownloadMergedDocxPortrait(
+  entries: CertificateEntry[]
+): Promise<void> {
+  if (entries.length === 0) throw new Error("No certificates to merge");
+
+  const baseZip = await JSZip.loadAsync(entries[0].buffer);
+  const baseDocumentXml = await baseZip.file("word/document.xml")?.async("string");
+  if (!baseDocumentXml) throw new Error("Invalid base DOCX file");
+
+  const parser = new DOMParser();
+  const baseDocument = parser.parseFromString(baseDocumentXml, "application/xml");
+  const baseBody = baseDocument.getElementsByTagNameNS("*", "body")[0];
+  if (!baseBody) throw new Error("Invalid DOCX body structure");
+
+  for (let i = 1; i < entries.length; i++) {
+    const currentZip = await JSZip.loadAsync(entries[i].buffer);
+    const currentDocumentXml = await currentZip.file("word/document.xml")?.async("string");
+    if (!currentDocumentXml) continue;
+
+    const currentDocument = parser.parseFromString(currentDocumentXml, "application/xml");
+    const currentBody = currentDocument.getElementsByTagNameNS("*", "body")[0];
+    if (!currentBody) continue;
+
+    // Find the body-level sectPr — use direct-child lookup, same fix as landscape
+    const finalSectPr = getBodyLevelSectPr(baseBody);
+
+    // Insert an explicit page break paragraph before the next certificate.
+    // This keeps each certificate on its own page without using continuous sections
+    // (which was the bug causing everything to mush onto one page).
+    const pageBreakParagraph = createPageBreakParagraph(baseDocument);
+    if (finalSectPr) {
+      baseBody.insertBefore(pageBreakParagraph, finalSectPr);
+    } else {
+      baseBody.appendChild(pageBreakParagraph);
+    }
+
+    // Move all content nodes from the current certificate into the base body
+    const childrenToMove = Array.from(currentBody.childNodes).filter(
+      (child) =>
+        child.nodeType === Node.ELEMENT_NODE &&
+        (child as Element).localName !== "sectPr"
+    );
+
+    // Re-query after inserting page break paragraph
+    const currentFinalSectPr = getBodyLevelSectPr(baseBody);
+
+    childrenToMove.forEach((child) => {
+      const importedChild = baseDocument.importNode(child, true);
+      if (currentFinalSectPr) {
+        baseBody.insertBefore(importedChild, currentFinalSectPr);
+      } else {
+        baseBody.appendChild(importedChild);
+      }
+    });
+
+    // Remove any sectPr that came with this certificate's body
+    const incomingSectionBreaks = currentBody.getElementsByTagNameNS("*", "sectPr");
+    while (incomingSectionBreaks.length > 0) {
+      incomingSectionBreaks[0].parentNode?.removeChild(incomingSectionBreaks[0]);
+    }
+  }
+
+  removeBlankPageArtifacts(baseDocument);
+
+  const mergedDocumentXml = new XMLSerializer().serializeToString(baseDocument);
+  baseZip.file("word/document.xml", mergedDocumentXml);
+
+  const mergedBlob = await baseZip.generateAsync({ type: "blob" });
+  saveAs(mergedBlob, "Certificates_Portrait.docx");
+}
+
+/**
+ * Creates a paragraph containing an explicit Word page break (<w:lastRenderedPageBreak>).
+ * This forces the next certificate onto a new page in portrait mode without
+ * using section breaks (which cause the "mushed together" issue).
+ */
+function createPageBreakParagraph(document: Document): Element {
+  const paragraph = document.createElementNS(WORD_NAMESPACE, "w:p");
+  const run = document.createElementNS(WORD_NAMESPACE, "w:r");
+  const br = document.createElementNS(WORD_NAMESPACE, "w:br");
+  br.setAttributeNS(WORD_NAMESPACE, "w:type", "page");
+  run.appendChild(br);
+  paragraph.appendChild(run);
   return paragraph;
 }
